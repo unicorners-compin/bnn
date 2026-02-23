@@ -7,7 +7,9 @@ import tempfile
 from pathlib import Path
 
 INPUT_SIZE = 1088
-BITS = INPUT_SIZE * 8
+CONFIG_SIZE = 64
+PAYLOAD_SIZE = 1024
+BITS = PAYLOAD_SIZE * 8
 
 
 def popcnt64(x: int) -> int:
@@ -16,8 +18,9 @@ def popcnt64(x: int) -> int:
 
 def score_python(data: bytes, weights: list[int], bias: int) -> float:
     matched = 0
+    payload = data[CONFIG_SIZE:]
     for i, w in enumerate(weights):
-        chunk = data[i * 8 : (i + 1) * 8]
+        chunk = payload[i * 8 : (i + 1) * 8]
         x = int.from_bytes(chunk, byteorder="little", signed=False)
         xnor = (~(x ^ w)) & 0xFFFFFFFFFFFFFFFF
         matched += popcnt64(xnor)

@@ -43,6 +43,7 @@ int main(void) {
     avx512_match = (scalar_score == avx512_score) ? 1 : 0;
 
     printf("default_backend=%s\n", bnn_backend_name(bnn_backend_active()));
+    printf("active_model_id=%u\n", bnn_active_model_id());
     printf("scalar_score=%.1f\n", scalar_score);
     printf("avx2_score=%.1f\n", avx2_score);
     printf("avx512_score=%.1f\n", avx512_score);
