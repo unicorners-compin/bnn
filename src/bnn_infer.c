@@ -19,6 +19,7 @@ static BNN_ALIGN64 uint64_t g_weights[BNN_WORDS];
 static bnn_backend_t g_backend = BNN_BACKEND_SCALAR;
 static int g_has_avx2 = 0;
 static int g_has_avx512 = 0;
+static int g_has_avx512_vpopcntdq = 0;
 static int g_forced_backend = -1;
 
 static uint64_t load_u64_unaligned(const void *p) {
@@ -62,6 +63,7 @@ static void detect_backend(void) {
     __builtin_cpu_init();
     g_has_avx2 = __builtin_cpu_supports("avx2") ? 1 : 0;
     g_has_avx512 = __builtin_cpu_supports("avx512f") ? 1 : 0;
+    g_has_avx512_vpopcntdq = __builtin_cpu_supports("avx512vpopcntdq") ? 1 : 0;
 #endif
 #endif
 
@@ -176,8 +178,61 @@ static float score_avx2(const uint8_t input[BNN_INPUT_SIZE]) {
 }
 
 static float score_avx512(const uint8_t input[BNN_INPUT_SIZE]) {
-    /* AVX-512 kernel lands in ISSUE-0003; keep behavior identical for now. */
+#if defined(__AVX512F__)
+    const uint8_t *p = input;
+    unsigned matched = 0u;
+    size_t i = 0;
+
+    for (; i + 7 < BNN_WORDS; i += 8) {
+        __m512i x = _mm512_loadu_si512((const void *)p);
+        __m512i w = _mm512_load_si512((const void *)&g_weights[i]);
+        __m512i xnor;
+
+        xnor = _mm512_xor_si512(x, w);
+        xnor = _mm512_xor_si512(xnor, _mm512_set1_epi64(-1));
+
+#if defined(__AVX512VPOPCNTDQ__)
+        if (g_has_avx512_vpopcntdq) {
+            __m512i pc = _mm512_popcnt_epi64(xnor);
+            uint64_t lanes[8];
+            _mm512_storeu_si512((void *)lanes, pc);
+            matched += (unsigned)lanes[0];
+            matched += (unsigned)lanes[1];
+            matched += (unsigned)lanes[2];
+            matched += (unsigned)lanes[3];
+            matched += (unsigned)lanes[4];
+            matched += (unsigned)lanes[5];
+            matched += (unsigned)lanes[6];
+            matched += (unsigned)lanes[7];
+        } else
+#endif
+        {
+            uint64_t lanes[8];
+            _mm512_storeu_si512((void *)lanes, xnor);
+            matched += popcnt64(lanes[0]);
+            matched += popcnt64(lanes[1]);
+            matched += popcnt64(lanes[2]);
+            matched += popcnt64(lanes[3]);
+            matched += popcnt64(lanes[4]);
+            matched += popcnt64(lanes[5]);
+            matched += popcnt64(lanes[6]);
+            matched += popcnt64(lanes[7]);
+        }
+
+        p += 8 * sizeof(uint64_t);
+    }
+
+    for (; i < BNN_WORDS; ++i) {
+        const uint64_t x = load_u64_unaligned(p);
+        const uint64_t xnor_tail = ~(x ^ g_weights[i]);
+        matched += popcnt64(xnor_tail);
+        p += sizeof(uint64_t);
+    }
+
+    return (float)((int)matched * 2 - (int)BNN_BITS);
+#else
     return score_avx2(input);
+#endif
 }
 
 int bnn_score_1088_on_backend(

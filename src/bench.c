@@ -88,6 +88,7 @@ int main(void) {
 
     run_bench_backend(BNN_BACKEND_SCALAR, kRuns, kWarmup);
     run_bench_backend(BNN_BACKEND_AVX2, kRuns, kWarmup);
+    run_bench_backend(BNN_BACKEND_AVX512, kRuns, kWarmup);
 
     return 0;
 }
