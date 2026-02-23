@@ -10,10 +10,11 @@ COMMON_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(COMMON_SRCS))
 
 BENCH_BIN := bench
 EVAL_BIN := eval
+SCORE_BIN := score_cli
 
 .PHONY: all clean
 
-all: $(BENCH_BIN) $(EVAL_BIN)
+all: $(BENCH_BIN) $(EVAL_BIN) $(SCORE_BIN)
 
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
@@ -27,5 +28,8 @@ $(BENCH_BIN): $(SRC_DIR)/bench.c $(COMMON_OBJS)
 $(EVAL_BIN): $(SRC_DIR)/eval.c $(COMMON_OBJS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
+$(SCORE_BIN): $(SRC_DIR)/score_cli.c $(COMMON_OBJS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
 clean:
-	rm -rf $(OBJ_DIR) $(BENCH_BIN) $(EVAL_BIN)
+	rm -rf $(OBJ_DIR) $(BENCH_BIN) $(EVAL_BIN) $(SCORE_BIN)

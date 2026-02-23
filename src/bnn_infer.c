@@ -1,4 +1,5 @@
 #include "bnn_infer.h"
+#include "bnn_weights.h"
 
 #include <immintrin.h>
 
@@ -7,14 +8,6 @@
 
 #define BNN_WORDS (BNN_INPUT_SIZE / sizeof(uint64_t))
 #define BNN_BITS (BNN_INPUT_SIZE * 8u)
-
-#if defined(__GNUC__) || defined(__clang__)
-#define BNN_ALIGN64 __attribute__((aligned(64)))
-#else
-#define BNN_ALIGN64
-#endif
-
-static BNN_ALIGN64 uint64_t g_weights[BNN_WORDS];
 
 static bnn_backend_t g_backend = BNN_BACKEND_SCALAR;
 static int g_has_avx2 = 0;
@@ -41,22 +34,6 @@ static unsigned popcnt64(uint64_t v) {
 #endif
 }
 
-/*
- * Temporary deterministic weights.
- * ISSUE-0004 will replace this with exported model weights.
- */
-static void init_weights(void) {
-    uint64_t s = 0x9E3779B97F4A7C15ULL;
-    size_t i;
-
-    for (i = 0; i < BNN_WORDS; ++i) {
-        s ^= s >> 12;
-        s ^= s << 25;
-        s ^= s >> 27;
-        g_weights[i] = s * 0x2545F4914F6CDD1DULL;
-    }
-}
-
 static void detect_backend(void) {
 #if defined(__x86_64__) || defined(_M_X64)
 #if defined(__GNUC__) || defined(__clang__)
@@ -77,7 +54,9 @@ static void detect_backend(void) {
 }
 
 int bnn_init(void) {
-    init_weights();
+    if (BNN_MODEL_WORDS != BNN_WORDS) {
+        return -2;
+    }
     detect_backend();
     return 0;
 }
@@ -133,7 +112,7 @@ static float score_scalar(const uint8_t input[BNN_INPUT_SIZE]) {
 
     for (i = 0; i < BNN_WORDS; ++i) {
         const uint64_t x = load_u64_unaligned(p);
-        const uint64_t xnor = ~(x ^ g_weights[i]);
+        const uint64_t xnor = ~(x ^ BNN_WEIGHTS[i]);
         matched += popcnt64(xnor);
         p += sizeof(uint64_t);
     }
@@ -150,7 +129,7 @@ static float score_avx2(const uint8_t input[BNN_INPUT_SIZE]) {
 
     for (; i + 3 < BNN_WORDS; i += 4) {
         __m256i x = _mm256_loadu_si256((const __m256i *)p);
-        __m256i w = _mm256_load_si256((const __m256i *)&g_weights[i]);
+        __m256i w = _mm256_loadu_si256((const __m256i *)&BNN_WEIGHTS[i]);
         __m256i xn = _mm256_xor_si256(x, w);
         __m256i xnor = _mm256_andnot_si256(xn, all_ones);
         uint64_t lanes[4];
@@ -165,7 +144,7 @@ static float score_avx2(const uint8_t input[BNN_INPUT_SIZE]) {
 
     for (; i < BNN_WORDS; ++i) {
         const uint64_t x = load_u64_unaligned(p);
-        const uint64_t xnor = ~(x ^ g_weights[i]);
+        const uint64_t xnor = ~(x ^ BNN_WEIGHTS[i]);
         matched += popcnt64(xnor);
         p += sizeof(uint64_t);
     }
@@ -185,7 +164,7 @@ static float score_avx512(const uint8_t input[BNN_INPUT_SIZE]) {
 
     for (; i + 7 < BNN_WORDS; i += 8) {
         __m512i x = _mm512_loadu_si512((const void *)p);
-        __m512i w = _mm512_load_si512((const void *)&g_weights[i]);
+        __m512i w = _mm512_loadu_si512((const void *)&BNN_WEIGHTS[i]);
         __m512i xnor;
 
         xnor = _mm512_xor_si512(x, w);
@@ -224,7 +203,7 @@ static float score_avx512(const uint8_t input[BNN_INPUT_SIZE]) {
 
     for (; i < BNN_WORDS; ++i) {
         const uint64_t x = load_u64_unaligned(p);
-        const uint64_t xnor_tail = ~(x ^ g_weights[i]);
+        const uint64_t xnor_tail = ~(x ^ BNN_WEIGHTS[i]);
         matched += popcnt64(xnor_tail);
         p += sizeof(uint64_t);
     }
